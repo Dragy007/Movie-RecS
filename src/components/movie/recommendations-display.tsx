@@ -1,3 +1,4 @@
+
 import type { RecommendedMovie } from '@/app/page';
 import MovieCard from './movie-card';
 import MovieSkeletons from './movie-skeletons';
@@ -24,11 +25,11 @@ const RecommendationsDisplay: React.FC<RecommendationsDisplayProps> = ({ recomme
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
       {recommendations.map((movie, index) => (
         <MovieCard
-          key={`${movie.title}-${index}`} // Simple key for now
+          key={`${movie.title}-${index}`} 
           title={movie.title}
-          posterUrl={movie.posterUrl}
+          posterDataUri={movie.posterDataUri} // Changed from posterUrl
           summary={movie.summary}
-          dataAiHint="movie recommendation"
+          // Rating is not applicable for recommended movies here, MovieCard handles this
         />
       ))}
     </div>

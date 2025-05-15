@@ -6,17 +6,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { analyzeMoviePreferences, type AnalyzeMoviePreferencesInput } from '@/ai/flows/analyze-movie-preferences';
-import { generatePersonalizedRecommendations, type GeneratePersonalizedRecommendationsInput } from '@/ai/flows/generate-personalized-recommendations';
+import { generatePersonalizedRecommendations, type GeneratePersonalizedRecommendationsInput, type GeneratePersonalizedRecommendationsOutput } from '@/ai/flows/generate-personalized-recommendations';
+import { generateMovieCreativeAssets, type GenerateMovieCreativeAssetsInput } from '@/ai/flows/generate-movie-creative-assets';
+import { generateMoviePosterImage, type GenerateMoviePosterImageInput } from '@/ai/flows/generate-movie-poster-image';
+
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, query, where, getDocs, doc, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 
 import AppHeader from '@/components/layout/app-header';
 import MovieRatingForm from '@/components/movie/movie-rating-form';
 import RatedMoviesList from '@/components/movie/rated-movies-list';
 import RecommendationsDisplay from '@/components/movie/recommendations-display';
-import { Loader2, Wand2, Film, Search, AlertCircle, User } from 'lucide-react';
+import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -26,17 +29,15 @@ export interface RatedMovie {
   id: string; 
   title: string;
   rating: number;
-  posterUrl: string;
+  posterDataUri: string; // Changed from posterUrl
   summary: string;
-  createdAt?: Timestamp; // Optional: for sorting by recently rated
-  dataAiHint?: string;
+  createdAt?: Timestamp; 
 }
 
 export interface RecommendedMovie {
   title: string;
-  posterUrl: string;
+  posterDataUri: string; // Changed from posterUrl
   summary: string;
-  dataAiHint?: string;
 }
 
 const Home: NextPage = () => {
@@ -48,6 +49,7 @@ const Home: NextPage = () => {
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingRatedMovies, setIsLoadingRatedMovies] = useState(true);
+  const [isGeneratingAssets, setIsGeneratingAssets] = useState(false); // For individual movie rating
   const [clientLoaded, setClientLoaded] = useState(false);
 
   useEffect(() => {
@@ -62,13 +64,12 @@ const Home: NextPage = () => {
     if (user) {
       setIsLoadingRatedMovies(true);
       const ratedMoviesCol = collection(db, `users/${user.uid}/ratedMovies`);
-      const q = query(ratedMoviesCol, orderBy('createdAt', 'desc')); // Sort by newest first
+      const q = query(ratedMoviesCol, orderBy('createdAt', 'desc')); 
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RatedMovie));
         setRatedMovies(movies);
         setIsLoadingRatedMovies(false);
-        // Reset analysis and recommendations if rated movies change
         setAnalyzedMovieTypes(null);
         setRecommendations([]);
       }, (error) => {
@@ -76,9 +77,9 @@ const Home: NextPage = () => {
         toast({ title: 'Error', description: 'Could not fetch your rated movies.', variant: 'destructive' });
         setIsLoadingRatedMovies(false);
       });
-      return () => unsubscribe(); // Cleanup listener
+      return () => unsubscribe();
     } else {
-      setRatedMovies([]); // Clear movies if user logs out
+      setRatedMovies([]); 
       setAnalyzedMovieTypes(null);
       setRecommendations([]);
       setIsLoadingRatedMovies(false);
@@ -86,23 +87,35 @@ const Home: NextPage = () => {
   }, [user, authLoading, clientLoaded, toast]);
 
 
-  const handleMovieRated = async (movie: Omit<RatedMovie, 'id' | 'createdAt'>) => {
+  const handleMovieRated = async (movieRatingInput: { title: string, rating: number }) => {
     if (!clientLoaded || !user) {
       toast({ title: 'Login Required', description: 'Please log in to rate movies.', variant: 'destructive'});
       return;
     }
-
+    setIsGeneratingAssets(true);
     try {
+      const creativeAssetsInput: GenerateMovieCreativeAssetsInput = { movieTitle: movieRatingInput.title };
+      toast({ title: 'Generating Movie Details...', description: 'AI is crafting a summary and poster concept.', duration: 5000 });
+      const creativeAssets = await generateMovieCreativeAssets(creativeAssetsInput);
+
+      toast({ title: 'Generating Poster Image...', description: 'AI is creating a unique poster for your movie.', duration: 8000});
+      const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: movieRatingInput.title, posterDescription: creativeAssets.posterDescription };
+      const posterImage = await generateMoviePosterImage(posterImageInput);
+
       const ratedMoviesCol = collection(db, `users/${user.uid}/ratedMovies`);
       await addDoc(ratedMoviesCol, {
-        ...movie,
-        createdAt: Timestamp.now(), // Add server timestamp
+        title: movieRatingInput.title,
+        rating: movieRatingInput.rating,
+        summary: creativeAssets.summary,
+        posterDataUri: posterImage.posterDataUri,
+        createdAt: Timestamp.now(),
       });
-      // Local state update will be handled by onSnapshot listener
-      toast({ title: 'Movie Rated!', description: `"${movie.title}" added to your list.` });
+      toast({ title: 'Movie Rated!', description: `"${movieRatingInput.title}" with AI-generated details added to your list.` });
     } catch (error) {
-      console.error("Error saving rated movie: ", error);
-      toast({ title: 'Rating Failed', description: 'Could not save your rating. Please try again.', variant: 'destructive' });
+      console.error("Error saving rated movie with AI assets: ", error);
+      toast({ title: 'Rating Failed', description: 'Could not generate AI assets or save your rating. Please try again.', variant: 'destructive' });
+    } finally {
+      setIsGeneratingAssets(false);
     }
   };
 
@@ -124,6 +137,7 @@ const Home: NextPage = () => {
       .join(', ');
 
     try {
+      toast({ title: 'Analyzing Preferences...', description: 'AI is learning your movie tastes.' });
       const input: AnalyzeMoviePreferencesInput = { ratedMovies: ratedMoviesString };
       const result = await analyzeMoviePreferences(input);
       setAnalyzedMovieTypes(result.movieTypes);
@@ -147,19 +161,37 @@ const Home: NextPage = () => {
     }
     setIsLoadingRecommendations(true);
     setRecommendations([]);
+    toast({ title: 'Fetching Recommendations...', description: 'AI is picking out some movies for you.' });
 
     try {
       const input: GeneratePersonalizedRecommendationsInput = { movieTypes: analyzedMovieTypes };
-      const result = await generatePersonalizedRecommendations(input);
+      const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input);
       
-      const recommendedMoviesData: RecommendedMovie[] = result.recommendations.map(title => ({
-        title,
-        posterUrl: `https://placehold.co/300x450.png`, 
-        summary: `A highly recommended ${analyzedMovieTypes.toLowerCase().split(', ')[0] || 'movie'} for you. Explore "${title}" and discover your next favorite!`,
-        dataAiHint: "movie recommendation"
-      }));
-      setRecommendations(recommendedMoviesData);
-      toast({ title: 'Recommendations Ready!', description: 'Check out your personalized list of movies below.' });
+      toast({ title: 'Generating Recommendation Posters...', description: 'AI is creating unique posters for your recommendations. This may take a moment.', duration: 10000 });
+      
+      const recommendedMoviesWithPosters: RecommendedMovie[] = await Promise.all(
+        result.recommendations.map(async (rec) => {
+          try {
+            const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: rec.title, posterDescription: rec.posterDescription };
+            const posterImage = await generateMoviePosterImage(posterImageInput);
+            return {
+              title: rec.title,
+              summary: rec.summary,
+              posterDataUri: posterImage.posterDataUri,
+            };
+          } catch (imgError) {
+            console.error(`Error generating poster for ${rec.title}:`, imgError);
+            return { // Fallback if a single image generation fails
+              title: rec.title,
+              summary: rec.summary,
+              posterDataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', // 1x1 transparent
+            };
+          }
+        })
+      );
+      
+      setRecommendations(recommendedMoviesWithPosters);
+      toast({ title: 'Recommendations Ready!', description: 'Check out your personalized list of movies with AI-generated posters below.' });
     } catch (error) {
       console.error('Error generating recommendations:', error);
       toast({ title: 'Recommendation Failed', description: 'Could not generate recommendations at this time. Please try again.', variant: 'destructive' });
@@ -197,11 +229,11 @@ const Home: NextPage = () => {
             <CardTitle className="text-2xl md:text-3xl font-bold text-primary flex items-center">
               <Search className="h-7 w-7 mr-3" /> Rate Your Movies
             </CardTitle>
-            <CardDescription>Tell us about movies you&apos;ve seen and loved (or not!). The more you rate, the better your recommendations.</CardDescription>
+            <CardDescription>Tell us about movies you&apos;ve seen. AI will generate a unique summary and poster for each!</CardDescription>
           </CardHeader>
           <CardContent>
             {user ? (
-              <MovieRatingForm onMovieRated={handleMovieRated} />
+              <MovieRatingForm onMovieRated={handleMovieRated} disabled={isGeneratingAssets} />
             ) : (
               <div className="text-center p-6 bg-muted/30 rounded-md">
                 <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
@@ -213,6 +245,12 @@ const Home: NextPage = () => {
                 </Button>
               </div>
             )}
+             {isGeneratingAssets && (
+              <div className="mt-4 flex items-center justify-center space-x-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" /> 
+                <span>AI is generating movie assets... This might take a moment.</span>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -221,8 +259,8 @@ const Home: NextPage = () => {
             <Separator className="my-8" />
             {isLoadingRatedMovies ? (
                <div className="space-y-4">
-                  <div className="h-8 w-1/3 bg-muted rounded animate-pulse" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
+                  <div className="h-8 w-1/3 bg-muted rounded animate-pulse mb-4" />
+                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6">
                     {Array.from({length: 3}).map((_, i) => (
                       <div key={i} className="aspect-[2/3] bg-muted rounded-lg animate-pulse" />
                     ))}
@@ -234,7 +272,7 @@ const Home: NextPage = () => {
             
             {ratedMovies.length > 0 && (
               <div className="text-center mt-8">
-                <Button onClick={handleAnalyzePreferences} disabled={isLoadingAnalysis || !user} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+                <Button onClick={handleAnalyzePreferences} disabled={isLoadingAnalysis || !user || isGeneratingAssets} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
                   {isLoadingAnalysis ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Wand2 className="mr-2 h-5 w-5" />}
                   Analyze My Preferences
                 </Button>
@@ -252,9 +290,9 @@ const Home: NextPage = () => {
           <>
             <Separator className="my-8" />
             <div className="text-center mt-8">
-               <Button onClick={handleGetRecommendations} disabled={isLoadingRecommendations || !user} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+               <Button onClick={handleGetRecommendations} disabled={isLoadingRecommendations || !user || isGeneratingAssets} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
                 {isLoadingRecommendations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Film className="mr-2 h-5 w-5" />}
-                Get Personalized Recommendations
+                Get AI Recommendations
               </Button>
             </div>
           </>
@@ -265,8 +303,9 @@ const Home: NextPage = () => {
             <Separator className="my-8" />
             <section id="recommendations-section" className="animate-in fade-in duration-700">
               <h2 className="text-2xl md:text-3xl font-bold mb-6 text-primary flex items-center">
-                <Film className="h-7 w-7 mr-3" /> Here Are Your Picks!
+                <ImageIcon className="h-7 w-7 mr-3 text-accent" /> AI-Generated Movie Picks!
               </h2>
+              <p className="mb-6 text-muted-foreground">Each movie comes with an AI-generated summary and a unique, AI-created poster.</p>
               <RecommendationsDisplay recommendations={recommendations} loading={isLoadingRecommendations} />
             </section>
           </>

@@ -9,8 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RatedMovie } from '@/app/page';
-
+// Removed RatedMovie import as assets are generated in page.tsx
 
 const formSchema = z.object({
   title: z.string().min(1, "Movie title is required").max(100, "Title is too long"),
@@ -18,7 +17,7 @@ const formSchema = z.object({
 });
 
 interface MovieRatingFormProps {
-  onMovieRated: (movie: Omit<RatedMovie, 'id' | 'createdAt'>) => void;
+  onMovieRated: (movie: { title: string; rating: number }) => void; // Only title and rating needed now
   disabled?: boolean;
 }
 
@@ -36,15 +35,12 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
         form.setError("rating", { type: "manual", message: "Please select a rating." });
         return;
     }
-    onMovieRated({
+    // Pass only title and rating. Summary and poster will be AI-generated in page.tsx
+    onMovieRated({ 
       title: values.title,
       rating: values.rating,
-      posterUrl: `https://placehold.co/300x450.png`,
-      summary: `You rated "${values.title}" ${values.rating} out of 5 stars. This is a placeholder summary.`,
-      dataAiHint: "movie poster"
     });
     form.reset();
-    // Manually reset rating to 0 in form state for UI consistency as field.onChange for stars doesn't reset if same value is clicked after form.reset()
     form.setValue('rating', 0); 
   }
 
@@ -104,7 +100,9 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
             )}
           />
         </fieldset>
-        <Button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground" disabled={disabled}>Add Rated Movie</Button>
+        <Button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground" disabled={disabled}>
+          {disabled ? 'Generating Assets...' : 'Add Rated Movie'}
+        </Button>
       </form>
     </Form>
   );
