@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useForm } from 'react-hook-form';
@@ -8,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { RatedMovie } from '@/app/page'; // Assuming type is exported or defined in a shared place
+import type { RatedMovie } from '@/app/page';
 
 
 const formSchema = z.object({
@@ -17,15 +18,16 @@ const formSchema = z.object({
 });
 
 interface MovieRatingFormProps {
-  onMovieRated: (movie: Omit<RatedMovie, 'id'>) => void;
+  onMovieRated: (movie: Omit<RatedMovie, 'id' | 'createdAt'>) => void;
+  disabled?: boolean;
 }
 
-const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated }) => {
+const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disabled }) => {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: "",
-      rating: 0, // Start with 0, user must select
+      rating: 0, 
     },
   });
 
@@ -41,63 +43,67 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated }) => {
       summary: `You rated "${values.title}" ${values.rating} out of 5 stars. This is a placeholder summary.`,
     });
     form.reset();
+    // Manually reset rating to 0 in form state for UI consistency as field.onChange for stars doesn't reset if same value is clicked after form.reset()
+    form.setValue('rating', 0); 
   }
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <FormField
-          control={form.control}
-          name="title"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Movie Title</FormLabel>
-              <FormControl>
-                <Input placeholder="e.g., Inception" {...field} />
-              </FormControl>
-              <FormDescription>
-                Enter the title of a movie you've watched.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <fieldset disabled={disabled} className="space-y-6">
+          <FormField
+            control={form.control}
+            name="title"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Movie Title</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g., Inception" {...field} />
+                </FormControl>
+                <FormDescription>
+                  Enter the title of a movie you&apos;ve watched.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        <FormField
-          control={form.control}
-          name="rating"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Your Rating</FormLabel>
-              <FormControl>
-                <div className="flex space-x-1">
-                  {[1, 2, 3, 4, 5].map((starValue) => (
-                    <Button
-                      key={starValue}
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => field.onChange(starValue)}
-                      className={cn(
-                        "border-accent hover:bg-accent/10",
-                        field.value === starValue ? "bg-accent text-accent-foreground hover:bg-accent/90" : "text-accent"
-                      )}
-                      aria-pressed={field.value === starValue}
-                      aria-label={`Rate ${starValue} star${starValue > 1 ? 's' : ''}`}
-                    >
-                      <Star className={cn("h-5 w-5", field.value === starValue ? "fill-current" : "fill-transparent")} />
-                    </Button>
-                  ))}
-                </div>
-              </FormControl>
-              <FormDescription>
-                Select a rating from 1 to 5 stars.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <Button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground">Add Rated Movie</Button>
+          <FormField
+            control={form.control}
+            name="rating"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Your Rating</FormLabel>
+                <FormControl>
+                  <div className="flex space-x-1">
+                    {[1, 2, 3, 4, 5].map((starValue) => (
+                      <Button
+                        key={starValue}
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => field.onChange(starValue)}
+                        className={cn(
+                          "border-accent hover:bg-accent/10",
+                          field.value === starValue ? "bg-accent text-accent-foreground hover:bg-accent/90" : "text-accent"
+                        )}
+                        aria-pressed={field.value === starValue}
+                        aria-label={`Rate ${starValue} star${starValue > 1 ? 's' : ''}`}
+                      >
+                        <Star className={cn("h-5 w-5", field.value === starValue ? "fill-current" : "fill-transparent")} />
+                      </Button>
+                    ))}
+                  </div>
+                </FormControl>
+                <FormDescription>
+                  Select a rating from 1 to 5 stars.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </fieldset>
+        <Button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground" disabled={disabled}>Add Rated Movie</Button>
       </form>
     </Form>
   );
