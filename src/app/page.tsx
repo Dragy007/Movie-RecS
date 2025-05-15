@@ -29,12 +29,14 @@ export interface RatedMovie {
   posterUrl: string;
   summary: string;
   createdAt?: Timestamp; // Optional: for sorting by recently rated
+  dataAiHint?: string;
 }
 
 export interface RecommendedMovie {
   title: string;
   posterUrl: string;
   summary: string;
+  dataAiHint?: string;
 }
 
 const Home: NextPage = () => {
@@ -152,7 +154,7 @@ const Home: NextPage = () => {
       
       const recommendedMoviesData: RecommendedMovie[] = result.recommendations.map(title => ({
         title,
-        posterUrl: `https://placehold.co/300x450.png?text=${encodeURIComponent(title.substring(0,20))}`, 
+        posterUrl: `https://placehold.co/300x450.png`, 
         summary: `A highly recommended ${analyzedMovieTypes.toLowerCase().split(', ')[0] || 'movie'} for you. Explore "${title}" and discover your next favorite!`,
         dataAiHint: "movie recommendation"
       }));

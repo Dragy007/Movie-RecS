@@ -39,8 +39,9 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
     onMovieRated({
       title: values.title,
       rating: values.rating,
-      posterUrl: `https://placehold.co/300x450.png?text=${encodeURIComponent(values.title.substring(0, 20))}`,
+      posterUrl: `https://placehold.co/300x450.png`,
       summary: `You rated "${values.title}" ${values.rating} out of 5 stars. This is a placeholder summary.`,
+      dataAiHint: "movie poster"
     });
     form.reset();
     // Manually reset rating to 0 in form state for UI consistency as field.onChange for stars doesn't reset if same value is clicked after form.reset()
