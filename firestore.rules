@@ -4,24 +4,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Allow users to read/write their own rated movies
+    // Allow users to read and write their own rated movies
     match /users/{userId}/ratedMovies/{movieId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    // Allow users to list their own rated movies and create new ones
     match /users/{userId}/ratedMovies {
       allow list, create: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Allow authenticated users to read from the movies_metadata collection
-    // IMPORTANT: For production, you might want more granular read rules
-    // or to use Firebase App Check to protect this public data.
-    match /movies_metadata/{movieId} {
-      allow read: if request.auth != null;
-    }
-    match /movies_metadata {
-      allow list: if request.auth != null; // For queries like where('title', '==', ...)
-    }
-  }
-}
-    
-    
+    // Note: Rules for 'movies_metadata' are removed as we are now using a local JSON subset.
+    // If you later decide to use Firestore for a global movie metadata collection,
+    // you would add rules for it here, for example:
+    // match /movies_metadata/{movieId} {
+    //   allow read

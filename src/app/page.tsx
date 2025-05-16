@@ -12,14 +12,14 @@ import { generateMoviePosterImage, type GenerateMoviePosterImageInput } from '@/
 
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, query, onSnapshot, orderBy, Timestamp, getDocs, where, limit } from 'firebase/firestore';
+import { collection, addDoc, query, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import Link from 'next/link';
 
 import AppHeader from '@/components/layout/app-header';
 import MovieRatingForm from '@/components/movie/movie-rating-form';
 import RatedMoviesList from '@/components/movie/rated-movies-list';
 import RecommendationsDisplay from '@/components/movie/recommendations-display';
-import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon, Database } from 'lucide-react';
+import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon, Database, FileJson } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -29,19 +29,28 @@ export interface RatedMovie {
   id: string;
   title: string;
   rating: number;
-  posterDataUri: string; 
+  posterDataUri: string;
   summary: string;
   createdAt?: Timestamp;
-  release_date?: string | null; // Allow null
-  vote_average_tmdb?: number | null; // Allow null
+  release_date?: string | null;
+  vote_average_tmdb?: number | null;
 }
 
 export interface RecommendedMovie {
   title: string;
-  posterDataUri: string; 
+  posterDataUri: string;
   summary: string;
-  release_date?: string | null; // Allow null
-  vote_average_tmdb?: number | null; // Allow null
+  release_date?: string | null;
+  vote_average_tmdb?: number | null;
+}
+
+// Interface for the structure of movies in the local JSON dataset
+interface LocalMovieData {
+  title: string;
+  overview: string;
+  poster_path: string;
+  release_date?: string; // Optional, consistent with TMDB structure
+  vote_average?: number; // Optional
 }
 
 
@@ -50,15 +59,35 @@ const Home: NextPage = () => {
   const [ratedMovies, setRatedMovies] = useState<RatedMovie[]>([]);
   const [analyzedMovieTypes, setAnalyzedMovieTypes] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendedMovie[]>([]);
-  
+
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingRatedMovies, setIsLoadingRatedMovies] = useState(true);
   const [isRatingMovie, setIsRatingMovie] = useState(false);
   const [clientLoaded, setClientLoaded] = useState(false);
+  const [localMovieDatabase, setLocalMovieDatabase] = useState<LocalMovieData[]>([]);
 
   useEffect(() => {
     setClientLoaded(true);
+    // Fetch the local movie database subset
+    fetch('/movie_database_subset.json')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Network response was not ok for movie_database_subset.json');
+        }
+        return response.json();
+      })
+      .then((data: LocalMovieData[]) => setLocalMovieDatabase(data))
+      .catch(error => {
+        console.warn("Could not load local movie database subset from /movie_database_subset.json. Falling back to placeholders/AI generation. Error:", error);
+        setLocalMovieDatabase([]); // Ensure it's an empty array on error
+        toast({
+          title: "Local Data Notice",
+          description: "Could not load local movie_database_subset.json. Movie details will rely on placeholders or AI.",
+          variant: "default",
+          duration: 7000,
+        })
+      });
   }, []);
 
   const { toast } = useToast();
@@ -75,8 +104,7 @@ const Home: NextPage = () => {
         const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RatedMovie));
         setRatedMovies(movies);
         setIsLoadingRatedMovies(false);
-        // Reset analysis and recommendations if rated movies change
-        setAnalyzedMovieTypes(null); 
+        setAnalyzedMovieTypes(null);
         setRecommendations([]);
       }, (error) => {
         console.error("Error fetching rated movies: ", error);
@@ -92,26 +120,23 @@ const Home: NextPage = () => {
     }
   }, [user, authLoading, clientLoaded, toast]);
 
-  const fetchMovieDetailsFromFirestore = async (movieTitle: string): Promise<Partial<RatedMovie> | null> => {
-    try {
-      const moviesRef = collection(db, 'movies_metadata');
-      const q = query(moviesRef, where('title', '==', movieTitle), limit(1)); // Case-sensitive exact match
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const movieDocData = querySnapshot.docs[0].data();
-        return {
-          summary: movieDocData.overview || null, // Return null if overview is falsy
-          posterDataUri: movieDocData.poster_path ? `https://image.tmdb.org/t/p/w500${movieDocData.poster_path}` : null, // Return null if no poster_path
-          release_date: movieDocData.release_date || null, // Return null if release_date is falsy
-          vote_average_tmdb: movieDocData.vote_average || null, // Return null if vote_average is falsy
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error("Error fetching movie details from Firestore 'movies_metadata':", error);
+  const fetchMovieDetailsFromLocalSubset = async (movieTitle: string): Promise<Partial<RatedMovie> | null> => {
+    if (localMovieDatabase.length === 0) {
+      // console.log("Local movie database is empty or not loaded. Cannot search for:", movieTitle);
       return null;
     }
+    // Simple case-insensitive search, for more complex needs, a more robust search or API would be better
+    const foundMovie = localMovieDatabase.find(movie => movie.title.toLowerCase() === movieTitle.toLowerCase());
+
+    if (foundMovie) {
+      return {
+        summary: foundMovie.overview || "Summary not available from local data.",
+        posterDataUri: foundMovie.poster_path ? `https://image.tmdb.org/t/p/w500${foundMovie.poster_path}` : `https://placehold.co/300x450.png?text=${encodeURIComponent(movieTitle)}`,
+        release_date: foundMovie.release_date || null,
+        vote_average_tmdb: foundMovie.vote_average || null,
+      };
+    }
+    return null;
   };
 
 
@@ -121,23 +146,34 @@ const Home: NextPage = () => {
       return;
     }
     setIsRatingMovie(true);
-    
-    const movieDetails = await fetchMovieDetailsFromFirestore(movieRatingInput.title);
 
-    const ratedMovieDataForFirestore = {
-      title: movieRatingInput.title,
-      rating: movieRatingInput.rating,
-      summary: movieDetails?.summary || "Summary not available.",
-      posterDataUri: movieDetails?.posterDataUri || `https://placehold.co/300x450.png?text=${encodeURIComponent(movieRatingInput.title)}`,
-      release_date: movieDetails?.release_date || null, // Ensure null instead of undefined
-      vote_average_tmdb: movieDetails?.vote_average_tmdb || null, // Ensure null instead of undefined
-      createdAt: Timestamp.now(),
-    };
+    const movieDetails = await fetchMovieDetailsFromLocalSubset(movieRatingInput.title);
+
+    let ratedMovieDataForFirestore: Omit<RatedMovie, 'id' | 'createdAt'> & { createdAt: Timestamp };
+
 
     if (movieDetails) {
-        toast({ title: 'Movie Details Found!', description: `Using details for "${movieRatingInput.title}" from database.`});
+        ratedMovieDataForFirestore = {
+          title: movieRatingInput.title,
+          rating: movieRatingInput.rating,
+          summary: movieDetails.summary || "Summary not available from local data.",
+          posterDataUri: movieDetails.posterDataUri || `https://placehold.co/300x450.png?text=${encodeURIComponent(movieRatingInput.title)}`,
+          release_date: movieDetails.release_date || null,
+          vote_average_tmdb: movieDetails.vote_average_tmdb || null,
+          createdAt: Timestamp.now(),
+        };
+        toast({ title: 'Movie Details Found!', description: `Using details for "${movieRatingInput.title}" from local data.`});
     } else {
-        toast({ title: 'Using Placeholders', description: `Details for "${movieRatingInput.title}" not found in our database. Basic info saved.`});
+        ratedMovieDataForFirestore = {
+          title: movieRatingInput.title,
+          rating: movieRatingInput.rating,
+          summary: "Your rating has been recorded. Detailed summary not found in local data.",
+          posterDataUri: `https://placehold.co/300x450.png?text=${encodeURIComponent(movieRatingInput.title)}`,
+          release_date: null,
+          vote_average_tmdb: null,
+          createdAt: Timestamp.now(),
+        };
+        toast({ title: 'Using Placeholders', description: `Details for "${movieRatingInput.title}" not found in local data. Basic info saved.`});
     }
 
     try {
@@ -162,8 +198,8 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingAnalysis(true);
-    setAnalyzedMovieTypes(null); 
-    setRecommendations([]); 
+    setAnalyzedMovieTypes(null);
+    setRecommendations([]);
 
     const ratedMoviesString = ratedMovies
       .map((movie) => `${movie.title} (User Rating: ${movie.rating}/5${movie.release_date ? `, Released: ${movie.release_date}` : ''}${movie.vote_average_tmdb ? `, Avg Rating: ${movie.vote_average_tmdb}/10` : ''})`)
@@ -193,48 +229,51 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingRecommendations(true);
-    setRecommendations([]); 
+    setRecommendations([]);
     toast({ title: 'Fetching Recommendations...', description: 'AI is picking out some movie titles for you.' });
 
     try {
       const input: GeneratePersonalizedRecommendationsInput = { movieTypes: analyzedMovieTypes };
-      const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input); 
-      
-      toast({ title: 'Fetching Details & Posters...', description: 'Looking up movie details and generating posters where needed. This may take a moment.', duration: 15000 });
+      const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input);
+
+      toast({ title: 'Fetching Details & Posters...', description: 'Looking up movie details from local data or generating with AI. This may take a moment.', duration: 15000 });
 
       const recommendedMoviesWithAssets: RecommendedMovie[] = await Promise.all(
         result.recommendations.map(async (recTitle) => {
-          let movieDetails = await fetchMovieDetailsFromFirestore(recTitle);
+          let movieDetails = await fetchMovieDetailsFromLocalSubset(recTitle);
 
           if (movieDetails && movieDetails.posterDataUri && movieDetails.summary) {
              return {
               title: recTitle,
               summary: movieDetails.summary,
-              posterDataUri: movieDetails.posterDataUri,
+              posterDataUri: movieDetails.posterDataUri, // Already includes full URL or placeholder
               release_date: movieDetails.release_date,
               vote_average_tmdb: movieDetails.vote_average_tmdb,
             };
-          } else {
+          } else { // Fallback to AI generation if not in local subset
             try {
               toast({title: `AI Creating Assets...`, description: `Generating summary & poster for "${recTitle}".`});
               const creativeAssetsInput: GenerateMovieCreativeAssetsInput = { movieTitle: recTitle };
               const assets = await generateMovieCreativeAssets(creativeAssetsInput);
-              
+
               const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: recTitle, posterDescription: assets.posterDescription };
               const posterImage = await generateMoviePosterImage(posterImageInput);
-              
+
               return {
                 title: recTitle,
                 summary: assets.summary,
                 posterDataUri: posterImage.posterDataUri,
-                // release_date and vote_average_tmdb will be undefined/null here as they are AI generated
+                release_date: null, // AI generated items won't have these unless we add to flow
+                vote_average_tmdb: null,
               };
             } catch (aiError) {
               console.error(`Error generating AI assets for ${recTitle}:`, aiError);
-              return { 
+              return {
                 title: recTitle,
                 summary: "Could not retrieve or generate summary.",
-                posterDataUri: `https://placehold.co/300x450.png?text=${encodeURIComponent(recTitle)}%0A(Error)`, 
+                posterDataUri: `https://placehold.co/300x450.png?text=${encodeURIComponent(recTitle)}%0A(Error)`,
+                release_date: null,
+                vote_average_tmdb: null,
               };
             }
           }
@@ -274,15 +313,15 @@ const Home: NextPage = () => {
             </AlertDescription>
           </Alert>
         )}
-        
+
         <Alert variant="default" className="border-accent/50 bg-accent/10 text-accent-foreground">
-          <Database className="h-5 w-5 text-accent" />
+          <FileJson className="h-5 w-5 text-accent" />
           <AlertTitle className="text-accent">Data Source Note</AlertTitle>
           <AlertDescription className="text-accent-foreground/80">
-            This app attempts to fetch movie details from a Firestore collection named <strong>`movies_metadata`</strong>. 
-            If you haven&apos;t populated this collection from a dataset (e.g., the Kaggle TMDB dataset), 
-            it will use placeholders for rated movies and AI-generated assets for recommendations not found in the database.
-            Ensure your Firestore security rules allow reads on `movies_metadata` for authenticated users.
+            This app attempts to fetch movie details from a local <strong>`public/movie_database_subset.json`</strong> file.
+            If you haven&apos;t created and populated this file with a subset of your movie data (e.g., from Kaggle),
+            it will use placeholders for rated movies and AI-generated assets for recommendations not found.
+            Ensure your JSON file has `title`, `overview`, and `poster_path` fields.
           </AlertDescription>
         </Alert>
 
@@ -291,7 +330,7 @@ const Home: NextPage = () => {
             <CardTitle className="text-2xl md:text-3xl font-bold text-primary flex items-center">
               <Search className="h-7 w-7 mr-3" /> Rate Your Movies
             </CardTitle>
-            <CardDescription>Tell us about movies you&apos;ve seen. We&apos;ll try to find details from our database or use placeholders.</CardDescription>
+            <CardDescription>Tell us about movies you&apos;ve seen. We&apos;ll try to find details from our local data subset or use placeholders.</CardDescription>
           </CardHeader>
           <CardContent>
             {user ? (
@@ -334,10 +373,10 @@ const Home: NextPage = () => {
 
             {ratedMovies.length > 0 && (
               <div className="text-center mt-8">
-                <Button 
-                  onClick={handleAnalyzePreferences} 
-                  disabled={isLoadingAnalysis || !user || isRatingMovie} 
-                  size="lg" 
+                <Button
+                  onClick={handleAnalyzePreferences}
+                  disabled={isLoadingAnalysis || !user || isRatingMovie}
+                  size="lg"
                   className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md"
                 >
                   {isLoadingAnalysis ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Wand2 className="mr-2 h-5 w-5" />}
@@ -357,10 +396,10 @@ const Home: NextPage = () => {
           <>
             <Separator className="my-8" />
             <div className="text-center mt-8">
-               <Button 
-                  onClick={handleGetRecommendations} 
-                  disabled={isLoadingRecommendations || !user || isRatingMovie} 
-                  size="lg" 
+               <Button
+                  onClick={handleGetRecommendations}
+                  disabled={isLoadingRecommendations || !user || isRatingMovie}
+                  size="lg"
                   className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md"
                 >
                 {isLoadingRecommendations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Film className="mr-2 h-5 w-5" />}
@@ -375,23 +414,21 @@ const Home: NextPage = () => {
             <Separator className="my-8" />
             <section id="recommendations-section" className="animate-in fade-in duration-700">
               <h2 className="text-2xl md:text-3xl font-bold mb-6 text-primary flex items-center">
-                <ImageIcon className="h-7 w-7 mr-3 text-accent" /> AI-Crafted & Database-Sourced Picks!
+                <ImageIcon className="h-7 w-7 mr-3 text-accent" /> AI-Crafted & Local Data Picks!
               </h2>
-              <p className="mb-6 text-muted-foreground">Movies are sourced from our database if available, otherwise AI generates unique assets.</p>
+              <p className="mb-6 text-muted-foreground">Movies are sourced from local data if available, otherwise AI generates unique assets.</p>
               <RecommendationsDisplay recommendations={recommendations} loading={isLoadingRecommendations} />
             </section>
           </>
         )}
       </main>
       <footer className="text-center p-6 text-sm text-muted-foreground border-t border-border mt-12">
-        Movie Recs &copy; {new Date().getFullYear()} &bull; Powered by AI & Movie Database
+        Movie Recs &copy; {new Date().getFullYear()} &bull; Powered by AI & Local Movie Data Subset
       </footer>
     </div>
   );
 };
 
 export default Home;
-        
     
-
     
