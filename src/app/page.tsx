@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { analyzeMoviePreferences, type AnalyzeMoviePreferencesInput } from '@/ai/flows/analyze-movie-preferences';
 import { generatePersonalizedRecommendations, type GeneratePersonalizedRecommendationsInput, type GeneratePersonalizedRecommendationsOutput } from '@/ai/flows/generate-personalized-recommendations';
-// Removed: import { generateMovieCreativeAssets, type GenerateMovieCreativeAssetsInput } from '@/ai/flows/generate-movie-creative-assets';
 import { generateMoviePosterImage, type GenerateMoviePosterImageInput } from '@/ai/flows/generate-movie-poster-image';
 
 import { useAuth } from '@/contexts/auth-context';
@@ -29,15 +28,21 @@ export interface RatedMovie {
   id: string;
   title: string;
   rating: number;
-  posterDataUri: string;
+  posterDataUri: string; // Can be a URL from TMDB, placeholder, or base64 data URI from AI
   summary: string;
   createdAt?: Timestamp;
 }
 
 export interface RecommendedMovie {
   title: string;
-  posterDataUri: string;
+  posterDataUri: string; // Typically a base64 data URI from AI
   summary: string;
+}
+
+interface MockMovieData {
+  title: string;
+  poster_path: string;
+  overview: string;
 }
 
 const Home: NextPage = () => {
@@ -45,15 +50,21 @@ const Home: NextPage = () => {
   const [ratedMovies, setRatedMovies] = useState<RatedMovie[]>([]);
   const [analyzedMovieTypes, setAnalyzedMovieTypes] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendedMovie[]>([]);
+  const [mockMovieData, setMockMovieData] = useState<MockMovieData[]>([]);
 
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingRatedMovies, setIsLoadingRatedMovies] = useState(true);
-  const [isRatingMovie, setIsRatingMovie] = useState(false); // Simplified from isGeneratingAssets
+  const [isRatingMovie, setIsRatingMovie] = useState(false);
   const [clientLoaded, setClientLoaded] = useState(false);
 
   useEffect(() => {
     setClientLoaded(true);
+    // Fetch mock movie data
+    fetch('/mock-movie-data.json')
+      .then(res => res.json())
+      .then(data => setMockMovieData(data))
+      .catch(err => console.error("Failed to load mock movie data:", err));
   }, []);
 
   const { toast } = useToast();
@@ -93,17 +104,26 @@ const Home: NextPage = () => {
       return;
     }
     setIsRatingMovie(true);
-    try {
-      // Use a generic placeholder for poster and summary
-      const placeholderPoster = `https://placehold.co/300x450.png`; // Generic placeholder
-      const genericSummary = "Your rating has been recorded.";
+    let posterUrl = `https://placehold.co/300x450.png`;
+    let movieSummary = "Your rating has been recorded. (Details not found in local mock data)";
+    
+    const foundMockMovie = mockMovieData.find(m => m.title.toLowerCase() === movieRatingInput.title.toLowerCase());
 
+    if (foundMockMovie && foundMockMovie.poster_path) {
+      posterUrl = `https://image.tmdb.org/t/p/w500${foundMockMovie.poster_path}`;
+      movieSummary = foundMockMovie.overview || "Overview not available.";
+      toast({ title: 'Movie Details Found!', description: `Using details for "${movieRatingInput.title}" from mock dataset.`});
+    } else {
+       toast({ title: 'Using Placeholder', description: `Details for "${movieRatingInput.title}" not in mock dataset. Using placeholder.`});
+    }
+
+    try {
       const ratedMoviesCol = collection(db, `users/${user.uid}/ratedMovies`);
       await addDoc(ratedMoviesCol, {
         title: movieRatingInput.title,
         rating: movieRatingInput.rating,
-        summary: genericSummary,
-        posterDataUri: placeholderPoster, // Store the placeholder URL
+        summary: movieSummary,
+        posterDataUri: posterUrl, 
         createdAt: Timestamp.now(),
       });
       toast({ title: 'Movie Rated!', description: `"${movieRatingInput.title}" added to your list.` });
@@ -180,7 +200,7 @@ const Home: NextPage = () => {
             return { 
               title: rec.title,
               summary: rec.summary,
-              posterDataUri: 'https://placehold.co/300x450.png?text=Error', 
+              posterDataUri: 'https://placehold.co/300x450.png?text=Error+Generating+Image', 
             };
           }
         })
@@ -315,5 +335,3 @@ const Home: NextPage = () => {
 };
 
 export default Home;
-
-    
