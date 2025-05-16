@@ -81,6 +81,7 @@ const Home: NextPage = () => {
         const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RatedMovie));
         setRatedMovies(movies);
         setIsLoadingRatedMovies(false);
+        // Reset analysis if rated movies change, as preferences might be stale
         setAnalyzedMovieTypes(null);
         setRecommendations([]);
       }, (error) => {
@@ -90,6 +91,7 @@ const Home: NextPage = () => {
       });
       return () => unsubscribe();
     } else {
+      // Clear data if user logs out
       setRatedMovies([]);
       setAnalyzedMovieTypes(null);
       setRecommendations([]);
@@ -145,8 +147,8 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingAnalysis(true);
-    setAnalyzedMovieTypes(null);
-    setRecommendations([]);
+    setAnalyzedMovieTypes(null); // Clear previous analysis results
+    setRecommendations([]); // Clear previous recommendations
 
     const ratedMoviesString = ratedMovies
       .map((movie) => `${movie.title} (Rating: ${movie.rating}/5)`)
@@ -176,7 +178,7 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingRecommendations(true);
-    setRecommendations([]);
+    setRecommendations([]); // Clear previous recommendations
     toast({ title: 'Fetching Recommendations...', description: 'AI is picking out some movies for you.' });
 
     try {
@@ -270,6 +272,7 @@ const Home: NextPage = () => {
           </CardContent>
         </Card>
 
+        {/* Section for Rated Movies and Analyze Preferences Button */}
         {(user && (isLoadingRatedMovies || ratedMovies.length > 0)) && (
           <>
             <Separator className="my-8" />
@@ -286,9 +289,15 @@ const Home: NextPage = () => {
               <RatedMoviesList movies={ratedMovies} />
             )}
 
+            {/* "Analyze My Preferences" Button */}
             {ratedMovies.length > 0 && (
               <div className="text-center mt-8">
-                <Button onClick={handleAnalyzePreferences} disabled={isLoadingAnalysis || !user || isRatingMovie} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+                <Button 
+                  onClick={handleAnalyzePreferences} 
+                  disabled={isLoadingAnalysis || !user || isRatingMovie} 
+                  size="lg" 
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md"
+                >
                   {isLoadingAnalysis ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Wand2 className="mr-2 h-5 w-5" />}
                   Analyze My Preferences
                 </Button>
@@ -302,11 +311,17 @@ const Home: NextPage = () => {
           </>
         )}
 
+        {/* "Get AI Recommendations" Button */}
         {user && analyzedMovieTypes && (
           <>
             <Separator className="my-8" />
             <div className="text-center mt-8">
-               <Button onClick={handleGetRecommendations} disabled={isLoadingRecommendations || !user || isRatingMovie} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+               <Button 
+                  onClick={handleGetRecommendations} 
+                  disabled={isLoadingRecommendations || !user || isRatingMovie} 
+                  size="lg" 
+                  className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md"
+                >
                 {isLoadingRecommendations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Film className="mr-2 h-5 w-5" />}
                 Get AI Recommendations
               </Button>
@@ -314,6 +329,7 @@ const Home: NextPage = () => {
           </>
         )}
 
+        {/* Section for Recommendations Display */}
         {user && (isLoadingRecommendations || recommendations.length > 0) && (
           <>
             <Separator className="my-8" />
