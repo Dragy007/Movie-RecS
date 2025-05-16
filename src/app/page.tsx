@@ -7,18 +7,19 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { analyzeMoviePreferences, type AnalyzeMoviePreferencesInput } from '@/ai/flows/analyze-movie-preferences';
 import { generatePersonalizedRecommendations, type GeneratePersonalizedRecommendationsInput, type GeneratePersonalizedRecommendationsOutput } from '@/ai/flows/generate-personalized-recommendations';
+import { generateMovieCreativeAssets, type GenerateMovieCreativeAssetsInput } from '@/ai/flows/generate-movie-creative-assets';
 import { generateMoviePosterImage, type GenerateMoviePosterImageInput } from '@/ai/flows/generate-movie-poster-image';
 
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, query, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, onSnapshot, orderBy, Timestamp, getDocs, where, limit, doc, getDoc } from 'firebase/firestore';
 import Link from 'next/link';
 
 import AppHeader from '@/components/layout/app-header';
 import MovieRatingForm from '@/components/movie/movie-rating-form';
 import RatedMoviesList from '@/components/movie/rated-movies-list';
 import RecommendationsDisplay from '@/components/movie/recommendations-display';
-import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon } from 'lucide-react';
+import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon, Database } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -28,30 +29,28 @@ export interface RatedMovie {
   id: string;
   title: string;
   rating: number;
-  posterDataUri: string; // Can be a URL from TMDB, placeholder, or base64 data URI from AI
+  posterDataUri: string; 
   summary: string;
   createdAt?: Timestamp;
+  release_date?: string; // From Firestore dataset
+  vote_average_tmdb?: number; // From Firestore dataset
 }
 
 export interface RecommendedMovie {
   title: string;
-  posterDataUri: string; // Typically a base64 data URI from AI
+  posterDataUri: string; 
   summary: string;
+  release_date?: string;
+  vote_average_tmdb?: number;
 }
 
-interface MockMovieData {
-  title: string;
-  poster_path: string;
-  overview: string;
-}
 
 const Home: NextPage = () => {
   const { user, loading: authLoading } = useAuth();
   const [ratedMovies, setRatedMovies] = useState<RatedMovie[]>([]);
   const [analyzedMovieTypes, setAnalyzedMovieTypes] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendedMovie[]>([]);
-  const [mockMovieData, setMockMovieData] = useState<MockMovieData[]>([]);
-
+  
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingRatedMovies, setIsLoadingRatedMovies] = useState(true);
@@ -60,11 +59,6 @@ const Home: NextPage = () => {
 
   useEffect(() => {
     setClientLoaded(true);
-    // Fetch mock movie data
-    fetch('/mock-movie-data.json')
-      .then(res => res.json())
-      .then(data => setMockMovieData(data))
-      .catch(err => console.error("Failed to load mock movie data:", err));
   }, []);
 
   const { toast } = useToast();
@@ -81,7 +75,6 @@ const Home: NextPage = () => {
         const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RatedMovie));
         setRatedMovies(movies);
         setIsLoadingRatedMovies(false);
-        // Reset analysis if rated movies change, as preferences might be stale
         setAnalyzedMovieTypes(null);
         setRecommendations([]);
       }, (error) => {
@@ -91,13 +84,38 @@ const Home: NextPage = () => {
       });
       return () => unsubscribe();
     } else {
-      // Clear data if user logs out
       setRatedMovies([]);
       setAnalyzedMovieTypes(null);
       setRecommendations([]);
       setIsLoadingRatedMovies(false);
     }
   }, [user, authLoading, clientLoaded, toast]);
+
+  const fetchMovieDetailsFromFirestore = async (movieTitle: string): Promise<Partial<RatedMovie> | null> => {
+    try {
+      // Attempt an exact title match first (case-sensitive)
+      // For better matching, you'd typically store a normalized (e.g., lowercase) title field
+      // and query against that, or use a dedicated search service.
+      const moviesRef = collection(db, 'movies_metadata');
+      const q = query(moviesRef, where('title', '==', movieTitle), limit(1));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const movieDoc = querySnapshot.docs[0].data();
+        return {
+          summary: movieDoc.overview || "No summary available from database.",
+          posterDataUri: movieDoc.poster_path ? `https://image.tmdb.org/t/p/w500${movieDoc.poster_path}` : `https://placehold.co/300x450.png?text=${encodeURIComponent(movieTitle)}`,
+          release_date: movieDoc.release_date || 'N/A',
+          vote_average_tmdb: movieDoc.vote_average || 0,
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Error fetching movie details from Firestore 'movies_metadata':", error);
+      // Do not toast here as it could be noisy if many movies are not found
+      return null;
+    }
+  };
 
 
   const handleMovieRated = async (movieRatingInput: { title: string, rating: number }) => {
@@ -106,17 +124,20 @@ const Home: NextPage = () => {
       return;
     }
     setIsRatingMovie(true);
-    let posterUrl = `https://placehold.co/300x450.png`;
-    let movieSummary = "Your rating has been recorded. (Details not found in local mock data)";
     
-    const foundMockMovie = mockMovieData.find(m => m.title.toLowerCase() === movieRatingInput.title.toLowerCase());
+    let movieDetails: Partial<RatedMovie> | null = null;
+    // Try to fetch from 'movies_metadata' collection in Firestore
+    movieDetails = await fetchMovieDetailsFromFirestore(movieRatingInput.title);
 
-    if (foundMockMovie && foundMockMovie.poster_path) {
-      posterUrl = `https://image.tmdb.org/t/p/w500${foundMockMovie.poster_path}`;
-      movieSummary = foundMockMovie.overview || "Overview not available.";
-      toast({ title: 'Movie Details Found!', description: `Using details for "${movieRatingInput.title}" from mock dataset.`});
+    const posterDataUri = movieDetails?.posterDataUri || `https://placehold.co/300x450.png?text=${encodeURIComponent(movieRatingInput.title)}`;
+    const summary = movieDetails?.summary || "Summary not available.";
+    const release_date = movieDetails?.release_date;
+    const vote_average_tmdb = movieDetails?.vote_average_tmdb;
+
+    if (movieDetails) {
+        toast({ title: 'Movie Details Found!', description: `Using details for "${movieRatingInput.title}" from database.`});
     } else {
-       toast({ title: 'Using Placeholder', description: `Details for "${movieRatingInput.title}" not in mock dataset. Using placeholder.`});
+        toast({ title: 'Using Placeholder', description: `Details for "${movieRatingInput.title}" not in database. Using placeholder.`});
     }
 
     try {
@@ -124,8 +145,10 @@ const Home: NextPage = () => {
       await addDoc(ratedMoviesCol, {
         title: movieRatingInput.title,
         rating: movieRatingInput.rating,
-        summary: movieSummary,
-        posterDataUri: posterUrl, 
+        summary: summary,
+        posterDataUri: posterDataUri, 
+        release_date: release_date,
+        vote_average_tmdb: vote_average_tmdb,
         createdAt: Timestamp.now(),
       });
       toast({ title: 'Movie Rated!', description: `"${movieRatingInput.title}" added to your list.` });
@@ -147,12 +170,12 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingAnalysis(true);
-    setAnalyzedMovieTypes(null); // Clear previous analysis results
-    setRecommendations([]); // Clear previous recommendations
+    setAnalyzedMovieTypes(null); 
+    setRecommendations([]); 
 
     const ratedMoviesString = ratedMovies
-      .map((movie) => `${movie.title} (Rating: ${movie.rating}/5)`)
-      .join(', ');
+      .map((movie) => `${movie.title} (User Rating: ${movie.rating}/5${movie.release_date ? `, Released: ${movie.release_date}` : ''}${movie.vote_average_tmdb ? `, Avg Rating: ${movie.vote_average_tmdb}/10` : ''})`)
+      .join('; ');
 
     try {
       toast({ title: 'Analyzing Preferences...', description: 'AI is learning your movie tastes.' });
@@ -178,38 +201,58 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingRecommendations(true);
-    setRecommendations([]); // Clear previous recommendations
-    toast({ title: 'Fetching Recommendations...', description: 'AI is picking out some movies for you.' });
+    setRecommendations([]); 
+    toast({ title: 'Fetching Recommendations...', description: 'AI is picking out some movie titles for you.' });
 
     try {
       const input: GeneratePersonalizedRecommendationsInput = { movieTypes: analyzedMovieTypes };
-      const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input);
+      // AI now primarily returns titles.
+      const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input); 
+      
+      toast({ title: 'Fetching Details & Posters...', description: 'Looking up movie details and generating posters where needed. This may take a moment.', duration: 15000 });
 
-      toast({ title: 'Generating Recommendation Posters...', description: 'AI is creating unique posters for your recommendations. This may take a moment.', duration: 10000 });
+      const recommendedMoviesWithAssets: RecommendedMovie[] = await Promise.all(
+        result.recommendations.map(async (recTitle) => {
+          let movieDetails = await fetchMovieDetailsFromFirestore(recTitle);
 
-      const recommendedMoviesWithPosters: RecommendedMovie[] = await Promise.all(
-        result.recommendations.map(async (rec) => {
-          try {
-            const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: rec.title, posterDescription: rec.posterDescription };
-            const posterImage = await generateMoviePosterImage(posterImageInput);
-            return {
-              title: rec.title,
-              summary: rec.summary,
-              posterDataUri: posterImage.posterDataUri,
+          if (movieDetails && movieDetails.posterDataUri && movieDetails.summary) {
+            // Found in Firestore DB
+             return {
+              title: recTitle,
+              summary: movieDetails.summary,
+              posterDataUri: movieDetails.posterDataUri,
+              release_date: movieDetails.release_date,
+              vote_average_tmdb: movieDetails.vote_average_tmdb,
             };
-          } catch (imgError) {
-            console.error(`Error generating poster for ${rec.title}:`, imgError);
-            return { 
-              title: rec.title,
-              summary: rec.summary,
-              posterDataUri: 'https://placehold.co/300x450.png?text=Error+Generating+Image', 
-            };
+          } else {
+            // Not found in Firestore, fallback to AI generation for assets
+            try {
+              toast({title: `AI Creating Assets...`, description: `Generating summary & poster for "${recTitle}".`});
+              const creativeAssetsInput: GenerateMovieCreativeAssetsInput = { movieTitle: recTitle };
+              const assets = await generateMovieCreativeAssets(creativeAssetsInput);
+              
+              const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: recTitle, posterDescription: assets.posterDescription };
+              const posterImage = await generateMoviePosterImage(posterImageInput);
+              
+              return {
+                title: recTitle,
+                summary: assets.summary,
+                posterDataUri: posterImage.posterDataUri,
+              };
+            } catch (aiError) {
+              console.error(`Error generating AI assets for ${recTitle}:`, aiError);
+              return { 
+                title: recTitle,
+                summary: "Could not retrieve or generate summary.",
+                posterDataUri: `https://placehold.co/300x450.png?text=${encodeURIComponent(recTitle)}%0A(Error)`, 
+              };
+            }
           }
         })
       );
 
-      setRecommendations(recommendedMoviesWithPosters);
-      toast({ title: 'Recommendations Ready!', description: 'Check out your personalized list of movies with AI-generated posters below.' });
+      setRecommendations(recommendedMoviesWithAssets);
+      toast({ title: 'Recommendations Ready!', description: 'Check out your personalized list of movies below.' });
     } catch (error) {
       console.error('Error generating recommendations:', error);
       toast({ title: 'Recommendation Failed', description: 'Could not generate recommendations at this time. Please try again.', variant: 'destructive' });
@@ -241,13 +284,23 @@ const Home: NextPage = () => {
             </AlertDescription>
           </Alert>
         )}
+        
+        <Alert variant="default" className="border-accent/50 bg-accent/10 text-accent-foreground">
+          <Database className="h-5 w-5 text-accent" />
+          <AlertTitle className="text-accent">Data Source Note</AlertTitle>
+          <AlertDescription className="text-accent-foreground/80">
+            This app attempts to fetch movie details from a Firestore collection named <strong>`movies_metadata`</strong>. 
+            If you haven&apos;t populated this collection from a dataset (e.g., the Kaggle TMDB dataset), 
+            it will use placeholders for rated movies and AI-generated assets for recommendations not found in the database.
+          </AlertDescription>
+        </Alert>
 
         <Card className="shadow-xl border-border bg-card/80 backdrop-blur-sm">
           <CardHeader>
             <CardTitle className="text-2xl md:text-3xl font-bold text-primary flex items-center">
               <Search className="h-7 w-7 mr-3" /> Rate Your Movies
             </CardTitle>
-            <CardDescription>Tell us about movies you&apos;ve seen. Your rated movies will be saved to your account.</CardDescription>
+            <CardDescription>Tell us about movies you&apos;ve seen. We&apos;ll try to find details from our database.</CardDescription>
           </CardHeader>
           <CardContent>
             {user ? (
@@ -272,7 +325,6 @@ const Home: NextPage = () => {
           </CardContent>
         </Card>
 
-        {/* Section for Rated Movies and Analyze Preferences Button */}
         {(user && (isLoadingRatedMovies || ratedMovies.length > 0)) && (
           <>
             <Separator className="my-8" />
@@ -289,7 +341,6 @@ const Home: NextPage = () => {
               <RatedMoviesList movies={ratedMovies} />
             )}
 
-            {/* "Analyze My Preferences" Button */}
             {ratedMovies.length > 0 && (
               <div className="text-center mt-8">
                 <Button 
@@ -311,7 +362,6 @@ const Home: NextPage = () => {
           </>
         )}
 
-        {/* "Get AI Recommendations" Button */}
         {user && analyzedMovieTypes && (
           <>
             <Separator className="my-8" />
@@ -329,25 +379,26 @@ const Home: NextPage = () => {
           </>
         )}
 
-        {/* Section for Recommendations Display */}
         {user && (isLoadingRecommendations || recommendations.length > 0) && (
           <>
             <Separator className="my-8" />
             <section id="recommendations-section" className="animate-in fade-in duration-700">
               <h2 className="text-2xl md:text-3xl font-bold mb-6 text-primary flex items-center">
-                <ImageIcon className="h-7 w-7 mr-3 text-accent" /> AI-Generated Movie Picks!
+                <ImageIcon className="h-7 w-7 mr-3 text-accent" /> AI-Crafted & Database-Sourced Picks!
               </h2>
-              <p className="mb-6 text-muted-foreground">Each movie comes with an AI-generated summary and a unique, AI-created poster.</p>
+              <p className="mb-6 text-muted-foreground">Movies are sourced from our database if available, otherwise AI generates unique assets.</p>
               <RecommendationsDisplay recommendations={recommendations} loading={isLoadingRecommendations} />
             </section>
           </>
         )}
       </main>
       <footer className="text-center p-6 text-sm text-muted-foreground border-t border-border mt-12">
-        Movie Recs &copy; {new Date().getFullYear()} &bull; Powered by AI
+        Movie Recs &copy; {new Date().getFullYear()} &bull; Powered by AI & Movie Database
       </footer>
     </div>
   );
 };
 
 export default Home;
+        
+    

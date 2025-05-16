@@ -19,9 +19,12 @@ const RatedMoviesList: React.FC<RatedMoviesListProps> = ({ movies }) => {
           <MovieCard
             key={movie.id}
             title={movie.title}
-            posterDataUri={movie.posterDataUri} // Changed from posterUrl
+            posterDataUri={movie.posterDataUri}
             summary={movie.summary}
             rating={movie.rating}
+            release_date={movie.release_date}
+            vote_average_tmdb={movie.vote_average_tmdb}
+            isRecommendation={false}
           />
         ))}
       </div>
@@ -30,3 +33,5 @@ const RatedMoviesList: React.FC<RatedMoviesListProps> = ({ movies }) => {
 };
 
 export default RatedMoviesList;
+    
+    

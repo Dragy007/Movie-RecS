@@ -27,9 +27,12 @@ const RecommendationsDisplay: React.FC<RecommendationsDisplayProps> = ({ recomme
         <MovieCard
           key={`${movie.title}-${index}`} 
           title={movie.title}
-          posterDataUri={movie.posterDataUri} // Changed from posterUrl
+          posterDataUri={movie.posterDataUri}
           summary={movie.summary}
-          // Rating is not applicable for recommended movies here, MovieCard handles this
+          release_date={movie.release_date}
+          vote_average_tmdb={movie.vote_average_tmdb}
+          isRecommendation={true}
+          // Rating is not applicable for recommended movies here by the user
         />
       ))}
     </div>
@@ -37,3 +40,5 @@ const RecommendationsDisplay: React.FC<RecommendationsDisplayProps> = ({ recomme
 };
 
 export default RecommendationsDisplay;
+    
+    

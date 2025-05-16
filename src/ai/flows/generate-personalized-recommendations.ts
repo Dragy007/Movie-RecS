@@ -3,9 +3,9 @@
 'use server';
 
 /**
- * @fileOverview A movie recommendation AI agent that provides personalized recommendations based on user preferences.
+ * @fileOverview A movie recommendation AI agent that provides personalized movie titles based on user preferences.
  *
- * - generatePersonalizedRecommendations - A function that generates personalized movie recommendations.
+ * - generatePersonalizedRecommendations - A function that generates personalized movie recommendation titles.
  * - GeneratePersonalizedRecommendationsInput - The input type for the generatePersonalizedRecommendations function.
  * - GeneratePersonalizedRecommendationsOutput - The return type for the generatePersonalizedRecommendations function.
  */
@@ -16,22 +16,15 @@ import {z} from 'genkit';
 const GeneratePersonalizedRecommendationsInputSchema = z.object({
   movieTypes: z
     .string()
-    .describe("A comma seperated list of the user's preferred movie types."),
+    .describe("A comma separated list of the user's preferred movie types, derived from their rated movies."),
 });
 export type GeneratePersonalizedRecommendationsInput = z.infer<typeof GeneratePersonalizedRecommendationsInputSchema>;
 
-const RecommendedMovieSchema = z.object({
-  title: z.string().describe('The title of the recommended movie.'),
-  summary: z.string().describe('A short, engaging summary of the movie (around 2-3 sentences).'),
-  posterDescription: z
-    .string()
-    .describe(
-      'A brief textual description (1-2 sentences) of a visually appealing movie poster concept for this recommended movie. This description will be used by another AI to generate an image.'
-    ),
-});
-
+// Output schema now focuses on returning a list of movie titles.
+// The frontend will then try to fetch details for these titles from Firestore,
+// or use AI to generate assets if not found.
 const GeneratePersonalizedRecommendationsOutputSchema = z.object({
-  recommendations: z.array(RecommendedMovieSchema).describe('A list of personalized movie recommendations including title, summary, and poster description.'),
+  recommendations: z.array(z.string()).describe('A list of 5 recommended movie titles. These should be existing, well-known movies if possible.'),
 });
 export type GeneratePersonalizedRecommendationsOutput = z.infer<typeof GeneratePersonalizedRecommendationsOutputSchema>;
 
@@ -43,16 +36,13 @@ const prompt = ai.definePrompt({
   name: 'generatePersonalizedRecommendationsPrompt',
   input: {schema: GeneratePersonalizedRecommendationsInputSchema},
   output: {schema: GeneratePersonalizedRecommendationsOutputSchema},
-  prompt: `You are a movie recommendation expert. Based on the user's stated preferred movie types, generate a list of 5 personalized movie recommendations.
+  prompt: `You are a movie recommendation expert. Based on the user's stated preferred movie types, generate a list of 5 movie titles as recommendations.
+These movies should ideally be existing and relatively well-known films that could be found in a movie database.
 
 Preferred Movie Types: {{{movieTypes}}}
 
-For each recommendation, provide:
-1. The movie title.
-2. A short, engaging summary (2-3 sentences).
-3. A brief textual description (1-2 sentences) for a visually appealing movie poster concept. This description should guide an AI image generator. Focus on mood, key elements, and style.
-
-Provide recommendations that align with these preferences. Do not provide any other explanation.
+Provide only the list of movie titles. Do not provide summaries, poster descriptions, or any other explanation here.
+Example output format: ["Movie Title A", "Another Movie Title B", "Film C", "Movie D", "The Fifth Movie"]
 `,
 });
 
@@ -64,6 +54,16 @@ const generatePersonalizedRecommendationsFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    // Ensure the output is an array of strings, even if the model doesn't perfectly adhere to the Zod schema.
+    // This is a basic check; more robust parsing might be needed depending on model behavior.
+    if (output && Array.isArray(output.recommendations) && output.recommendations.every(item => typeof item === 'string')) {
+      return output;
+    }
+    // Fallback if the output structure is not as expected
+    console.warn("AI output for recommendations was not in the expected format. Returning empty array.");
+    return { recommendations: [] };
   }
 );
+
+    
+    
