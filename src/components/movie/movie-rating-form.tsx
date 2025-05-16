@@ -16,7 +16,7 @@ const formSchema = z.object({
 });
 
 interface MovieRatingFormProps {
-  onMovieRated: (movie: { title: string; rating: number }) => void;
+  onMovieRated: (movie: { title: string; rating: number }) => Promise<void>; // Changed to Promise<void>
   disabled?: boolean;
 }
 
@@ -29,17 +29,18 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
     if (values.rating === 0) {
         form.setError("rating", { type: "manual", message: "Please select a rating." });
         return;
     }
-    onMovieRated({
+    await onMovieRated({ // Added await
       title: values.title,
       rating: values.rating,
     });
     form.reset();
-    form.setValue('rating', 0);
+    form.setValue('rating', 0); // Explicitly reset rating to 0
+    form.clearErrors(); // Clear any existing errors
   }
 
   return (
@@ -77,7 +78,12 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
                         type="button"
                         variant="outline"
                         size="icon"
-                        onClick={() => field.onChange(starValue)}
+                        onClick={() => {
+                          field.onChange(starValue);
+                          if (form.formState.errors.rating) {
+                            form.clearErrors("rating");
+                          }
+                        }}
                         className={cn(
                           "border-accent hover:bg-accent/10",
                           field.value === starValue ? "bg-accent text-accent-foreground hover:bg-accent/90" : "text-accent"
@@ -107,5 +113,3 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
 };
 
 export default MovieRatingForm;
-
-    
