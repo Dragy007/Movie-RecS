@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { analyzeMoviePreferences, type AnalyzeMoviePreferencesInput } from '@/ai/flows/analyze-movie-preferences';
 import { generatePersonalizedRecommendations, type GeneratePersonalizedRecommendationsInput, type GeneratePersonalizedRecommendationsOutput } from '@/ai/flows/generate-personalized-recommendations';
-import { generateMovieCreativeAssets, type GenerateMovieCreativeAssetsInput } from '@/ai/flows/generate-movie-creative-assets';
+// Removed: import { generateMovieCreativeAssets, type GenerateMovieCreativeAssetsInput } from '@/ai/flows/generate-movie-creative-assets';
 import { generateMoviePosterImage, type GenerateMoviePosterImageInput } from '@/ai/flows/generate-movie-poster-image';
 
 import { useAuth } from '@/contexts/auth-context';
@@ -19,24 +19,24 @@ import AppHeader from '@/components/layout/app-header';
 import MovieRatingForm from '@/components/movie/movie-rating-form';
 import RatedMoviesList from '@/components/movie/rated-movies-list';
 import RecommendationsDisplay from '@/components/movie/recommendations-display';
-import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon, FileText } from 'lucide-react';
+import { Loader2, Wand2, Film, Search, AlertCircle, User, ImageIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 
 export interface RatedMovie {
-  id: string; 
+  id: string;
   title: string;
   rating: number;
-  posterDataUri: string; // Changed from posterUrl
+  posterDataUri: string;
   summary: string;
-  createdAt?: Timestamp; 
+  createdAt?: Timestamp;
 }
 
 export interface RecommendedMovie {
   title: string;
-  posterDataUri: string; // Changed from posterUrl
+  posterDataUri: string;
   summary: string;
 }
 
@@ -45,15 +45,15 @@ const Home: NextPage = () => {
   const [ratedMovies, setRatedMovies] = useState<RatedMovie[]>([]);
   const [analyzedMovieTypes, setAnalyzedMovieTypes] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendedMovie[]>([]);
-  
+
   const [isLoadingAnalysis, setIsLoadingAnalysis] = useState(false);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingRatedMovies, setIsLoadingRatedMovies] = useState(true);
-  const [isGeneratingAssets, setIsGeneratingAssets] = useState(false); // For individual movie rating
+  const [isRatingMovie, setIsRatingMovie] = useState(false); // Simplified from isGeneratingAssets
   const [clientLoaded, setClientLoaded] = useState(false);
 
   useEffect(() => {
-    setClientLoaded(true); 
+    setClientLoaded(true);
   }, []);
 
   const { toast } = useToast();
@@ -64,7 +64,7 @@ const Home: NextPage = () => {
     if (user) {
       setIsLoadingRatedMovies(true);
       const ratedMoviesCol = collection(db, `users/${user.uid}/ratedMovies`);
-      const q = query(ratedMoviesCol, orderBy('createdAt', 'desc')); 
+      const q = query(ratedMoviesCol, orderBy('createdAt', 'desc'));
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as RatedMovie));
@@ -79,7 +79,7 @@ const Home: NextPage = () => {
       });
       return () => unsubscribe();
     } else {
-      setRatedMovies([]); 
+      setRatedMovies([]);
       setAnalyzedMovieTypes(null);
       setRecommendations([]);
       setIsLoadingRatedMovies(false);
@@ -92,30 +92,26 @@ const Home: NextPage = () => {
       toast({ title: 'Login Required', description: 'Please log in to rate movies.', variant: 'destructive'});
       return;
     }
-    setIsGeneratingAssets(true);
+    setIsRatingMovie(true);
     try {
-      const creativeAssetsInput: GenerateMovieCreativeAssetsInput = { movieTitle: movieRatingInput.title };
-      toast({ title: 'Generating Movie Details...', description: 'AI is crafting a summary and poster concept.', duration: 5000 });
-      const creativeAssets = await generateMovieCreativeAssets(creativeAssetsInput);
-
-      toast({ title: 'Generating Poster Image...', description: 'AI is creating a unique poster for your movie.', duration: 8000});
-      const posterImageInput: GenerateMoviePosterImageInput = { movieTitle: movieRatingInput.title, posterDescription: creativeAssets.posterDescription };
-      const posterImage = await generateMoviePosterImage(posterImageInput);
+      // Use a generic placeholder for poster and summary
+      const placeholderPoster = `https://placehold.co/300x450.png`; // Generic placeholder
+      const genericSummary = "Your rating has been recorded.";
 
       const ratedMoviesCol = collection(db, `users/${user.uid}/ratedMovies`);
       await addDoc(ratedMoviesCol, {
         title: movieRatingInput.title,
         rating: movieRatingInput.rating,
-        summary: creativeAssets.summary,
-        posterDataUri: posterImage.posterDataUri,
+        summary: genericSummary,
+        posterDataUri: placeholderPoster, // Store the placeholder URL
         createdAt: Timestamp.now(),
       });
-      toast({ title: 'Movie Rated!', description: `"${movieRatingInput.title}" with AI-generated details added to your list.` });
+      toast({ title: 'Movie Rated!', description: `"${movieRatingInput.title}" added to your list.` });
     } catch (error) {
-      console.error("Error saving rated movie with AI assets: ", error);
-      toast({ title: 'Rating Failed', description: 'Could not generate AI assets or save your rating. Please try again.', variant: 'destructive' });
+      console.error("Error saving rated movie: ", error);
+      toast({ title: 'Rating Failed', description: 'Could not save your rating. Please try again.', variant: 'destructive' });
     } finally {
-      setIsGeneratingAssets(false);
+      setIsRatingMovie(false);
     }
   };
 
@@ -129,8 +125,8 @@ const Home: NextPage = () => {
       return;
     }
     setIsLoadingAnalysis(true);
-    setAnalyzedMovieTypes(null); 
-    setRecommendations([]); 
+    setAnalyzedMovieTypes(null);
+    setRecommendations([]);
 
     const ratedMoviesString = ratedMovies
       .map((movie) => `${movie.title} (Rating: ${movie.rating}/5)`)
@@ -166,9 +162,9 @@ const Home: NextPage = () => {
     try {
       const input: GeneratePersonalizedRecommendationsInput = { movieTypes: analyzedMovieTypes };
       const result: GeneratePersonalizedRecommendationsOutput = await generatePersonalizedRecommendations(input);
-      
+
       toast({ title: 'Generating Recommendation Posters...', description: 'AI is creating unique posters for your recommendations. This may take a moment.', duration: 10000 });
-      
+
       const recommendedMoviesWithPosters: RecommendedMovie[] = await Promise.all(
         result.recommendations.map(async (rec) => {
           try {
@@ -181,15 +177,15 @@ const Home: NextPage = () => {
             };
           } catch (imgError) {
             console.error(`Error generating poster for ${rec.title}:`, imgError);
-            return { // Fallback if a single image generation fails
+            return { 
               title: rec.title,
               summary: rec.summary,
-              posterDataUri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', // 1x1 transparent
+              posterDataUri: 'https://placehold.co/300x450.png?text=Error', 
             };
           }
         })
       );
-      
+
       setRecommendations(recommendedMoviesWithPosters);
       toast({ title: 'Recommendations Ready!', description: 'Check out your personalized list of movies with AI-generated posters below.' });
     } catch (error) {
@@ -199,7 +195,7 @@ const Home: NextPage = () => {
       setIsLoadingRecommendations(false);
     }
   };
-  
+
   if (!clientLoaded || authLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background">
@@ -213,7 +209,7 @@ const Home: NextPage = () => {
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
       <main className="flex-grow container mx-auto p-4 sm:p-6 md:p-8 space-y-10 md:space-y-12">
-        
+
         {!user && (
           <Alert variant="default" className="border-primary/50 bg-primary/10">
             <User className="h-5 w-5 text-primary" />
@@ -229,11 +225,11 @@ const Home: NextPage = () => {
             <CardTitle className="text-2xl md:text-3xl font-bold text-primary flex items-center">
               <Search className="h-7 w-7 mr-3" /> Rate Your Movies
             </CardTitle>
-            <CardDescription>Tell us about movies you&apos;ve seen. AI will generate a unique summary and poster for each!</CardDescription>
+            <CardDescription>Tell us about movies you&apos;ve seen. Your rated movies will be saved to your account.</CardDescription>
           </CardHeader>
           <CardContent>
             {user ? (
-              <MovieRatingForm onMovieRated={handleMovieRated} disabled={isGeneratingAssets} />
+              <MovieRatingForm onMovieRated={handleMovieRated} disabled={isRatingMovie} />
             ) : (
               <div className="text-center p-6 bg-muted/30 rounded-md">
                 <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
@@ -245,10 +241,10 @@ const Home: NextPage = () => {
                 </Button>
               </div>
             )}
-             {isGeneratingAssets && (
+             {isRatingMovie && (
               <div className="mt-4 flex items-center justify-center space-x-2 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" /> 
-                <span>AI is generating movie assets... This might take a moment.</span>
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Adding movie to your list...</span>
               </div>
             )}
           </CardContent>
@@ -269,10 +265,10 @@ const Home: NextPage = () => {
             ) : (
               <RatedMoviesList movies={ratedMovies} />
             )}
-            
+
             {ratedMovies.length > 0 && (
               <div className="text-center mt-8">
-                <Button onClick={handleAnalyzePreferences} disabled={isLoadingAnalysis || !user || isGeneratingAssets} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+                <Button onClick={handleAnalyzePreferences} disabled={isLoadingAnalysis || !user || isRatingMovie} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
                   {isLoadingAnalysis ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Wand2 className="mr-2 h-5 w-5" />}
                   Analyze My Preferences
                 </Button>
@@ -290,14 +286,14 @@ const Home: NextPage = () => {
           <>
             <Separator className="my-8" />
             <div className="text-center mt-8">
-               <Button onClick={handleGetRecommendations} disabled={isLoadingRecommendations || !user || isGeneratingAssets} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
+               <Button onClick={handleGetRecommendations} disabled={isLoadingRecommendations || !user || isRatingMovie} size="lg" className="bg-accent hover:bg-accent/90 text-accent-foreground px-8 py-6 text-lg shadow-md">
                 {isLoadingRecommendations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Film className="mr-2 h-5 w-5" />}
                 Get AI Recommendations
               </Button>
             </div>
           </>
         )}
-        
+
         {user && (isLoadingRecommendations || recommendations.length > 0) && (
           <>
             <Separator className="my-8" />
@@ -319,3 +315,5 @@ const Home: NextPage = () => {
 };
 
 export default Home;
+
+    

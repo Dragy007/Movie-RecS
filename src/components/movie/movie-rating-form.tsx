@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-// Removed RatedMovie import as assets are generated in page.tsx
 
 const formSchema = z.object({
   title: z.string().min(1, "Movie title is required").max(100, "Title is too long"),
@@ -17,7 +16,7 @@ const formSchema = z.object({
 });
 
 interface MovieRatingFormProps {
-  onMovieRated: (movie: { title: string; rating: number }) => void; // Only title and rating needed now
+  onMovieRated: (movie: { title: string; rating: number }) => void;
   disabled?: boolean;
 }
 
@@ -26,7 +25,7 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: "",
-      rating: 0, 
+      rating: 0,
     },
   });
 
@@ -35,13 +34,12 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
         form.setError("rating", { type: "manual", message: "Please select a rating." });
         return;
     }
-    // Pass only title and rating. Summary and poster will be AI-generated in page.tsx
-    onMovieRated({ 
+    onMovieRated({
       title: values.title,
       rating: values.rating,
     });
     form.reset();
-    form.setValue('rating', 0); 
+    form.setValue('rating', 0);
   }
 
   return (
@@ -101,7 +99,7 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
           />
         </fieldset>
         <Button type="submit" className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground" disabled={disabled}>
-          {disabled ? 'Generating Assets...' : 'Add Rated Movie'}
+          {disabled ? 'Adding Movie...' : 'Add Rated Movie'}
         </Button>
       </form>
     </Form>
@@ -109,3 +107,5 @@ const MovieRatingForm: React.FC<MovieRatingFormProps> = ({ onMovieRated, disable
 };
 
 export default MovieRatingForm;
+
+    
